@@ -1,0 +1,17 @@
+{
+    "properties": {
+        "assignableScopes": [],
+        "description": "Has the minimal set of rights required for services to join a subnet.",
+        "permissions": [
+            {
+                "actions": [
+                    "Microsoft.Network/virtualNetworks/subnets/join/action"
+                ],
+                "dataActions": [],
+                "notActions": [],
+                "notDataActions": []
+            }
+        ],
+        "roleName": "Virtual Network Subnet Joiner"
+    }
+}

@@ -1,0 +1,17 @@
+{
+    "properties": {
+        "assignableScopes": [],
+        "description": "Has the minimal set of rights required for services to assign an identity to a resource.",
+        "permissions": [
+            {
+                "actions": [
+                    "Microsoft.ManagedIdentity/userAssignedIdentities/assign/action"
+                ],
+                "dataActions": [],
+                "notActions": [],
+                "notDataActions": []
+            }
+        ],
+        "roleName": "User Assigned Identity Assignor"
+    }
+}

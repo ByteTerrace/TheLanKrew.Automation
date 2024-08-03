@@ -1,0 +1,50 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "languageVersion": "2.0",
+    "parameters": {
+        "properties": {
+            "properties": {
+                "roleAssignments": {
+                    "items": {
+                        "properties": {
+                            "description": {
+                                "nullable": true,
+                                "type": "string"
+                            },
+                            "principalId": {
+                                "type": "string"
+                            },
+                            "roleDefinitionId": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "scope": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "resources": {
+        "roleAssignments": {
+            "apiVersion": "2022-04-01",
+            "copy": {
+                "name": "roleAssignments",
+                "count": "[length(parameters('properties').roleAssignments)]"
+            },
+            "name": "[guid(parameters('properties').roleAssignments[copyIndex()].principalId, parameters('properties').roleAssignments[copyIndex()].roleDefinitionId, parameters('properties').scope)]",
+            "properties": {
+                "description": "[tryGet(parameters('properties').roleAssignments[copyIndex()], 'description')]",
+                "principalId": "[parameters('properties').roleAssignments[copyIndex()].principalId]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', parameters('properties').roleAssignments[copyIndex()].roleDefinitionId)]"
+            },
+            "scope": "[parameters('properties').scope]",
+            "type": "Microsoft.Authorization/roleAssignments"
+        }
+    }
+}

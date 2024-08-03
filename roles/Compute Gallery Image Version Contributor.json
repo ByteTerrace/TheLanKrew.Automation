@@ -1,0 +1,19 @@
+{
+    "properties": {
+        "assignableScopes": [],
+        "description": "Has the minimal set of rights required for services to add/update image versions.",
+        "permissions": [
+            {
+                "actions": [
+                    "Microsoft.Compute/galleries/images/read",
+                    "Microsoft.Compute/galleries/images/versions/read",
+                    "Microsoft.Compute/galleries/images/versions/write"
+                ],
+                "dataActions": [],
+                "notActions": [],
+                "notDataActions": []
+            }
+        ],
+        "roleName": "Compute Gallery Image Version Contributor"
+    }
+}
