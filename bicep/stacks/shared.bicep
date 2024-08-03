@@ -8,11 +8,9 @@
 
 import * as gal from '../modules/compute/galleries/main.bicep'
 import * as id from '../modules/managed-identity/user-assigned-identities/main.bicep'
-import * as ippre from '../modules/network/public-ip-prefixes/main.bicep'
 import * as it from '../modules/virtual-machine-images/image-templates/main.bicep'
 import * as nsg from '../modules/network/network-security-groups/main.bicep'
 import * as snet from '../modules/network/subnets/main.bicep'
-import * as vmss from '../modules/compute/virtual-machine-scale-sets/main.bicep'
 import * as vnet from '../modules/network/virtual-networks/main.bicep'
 
 func generateDeploymentName(suffix string) string => '${deployment().name}-${suffix}'
@@ -22,11 +20,6 @@ func generateResourceName(
   suffix string
 ) string => '${prefix}-${abbreviation}-${suffix}'
 
-param administrator {
-  name: string
-  @secure()
-  password: string
-}
 param location string
 param resourceNamePrefix string
 param virtualNetwork {
@@ -55,28 +48,90 @@ var names = {
     hostVirtualMachines: generateResourceName(nsg.abbreviation, resourceNamePrefix, 'P000')
     imageBuildVirtualMachines: generateResourceName(nsg.abbreviation, resourceNamePrefix, 'P001')
   }
-  publicIpPrefixes: {
-    arkSurvivalEvolvedDedicatedServer: generateResourceName(ippre.abbreviation, resourceNamePrefix, 'P000')
-    '7DaysToDieDedicatedServer': generateResourceName(ippre.abbreviation, resourceNamePrefix, 'P001')
-  }
   subnets: {
     containerInstances: generateResourceName(snet.abbreviation, resourceNamePrefix, 'P002')
     hostVirtualMachines: generateResourceName(snet.abbreviation, resourceNamePrefix, 'P000')
     imageBuildVirtualMachines: generateResourceName(snet.abbreviation, resourceNamePrefix, 'P001')
   }
   userAssignedIdentities: {
-    arkSurvivalEvolvedDedicatedServer: generateResourceName(id.abbreviation, resourceNamePrefix, 'P001')
     imageBuildVirtualMachines: generateResourceName(id.abbreviation, resourceNamePrefix, 'P000')
-    '7DaysToDieDedicatedServer': generateResourceName(id.abbreviation, resourceNamePrefix, 'P002')
-  }
-  virtualMachineScaleSets: {
-    arkSurvivalEvolvedDedicatedServer: generateResourceName(vmss.abbreviation, resourceNamePrefix, 'P000')
-    '7DaysToDieDedicatedServer': generateResourceName(vmss.abbreviation, resourceNamePrefix, 'P001')
   }
   virtualNetwork: generateResourceName(vnet.abbreviation, resourceNamePrefix, 'P000')
 }
 
 // shared resources
+module arkSurvivalEvolvedDedicatedServerImageTemplate '../modules/virtual-machine-images/image-templates/main.bicep' = {
+  name: generateDeploymentName(uniqueString(names.imageTemplates.arkSurvivalEvolvedDedicatedServer))
+  params: {
+    location: location
+    properties: {
+      customizations: [
+        {
+          inline: [ 'New-Item -ItemType \'Directory\' -Path \'C:/ByteTerrace/PowerShell\' | Out-Null' ]
+          name: 'Create Staging Path'
+          type: 'PowerShell'
+        }
+        {
+          destination: 'C:/ByteTerrace/PowerShell/Install-PowerShell.ps1'
+          name: 'Download Install-PowerShell.ps1'
+          sourceUri: 'https://byteterrace.blob.core.windows.net/temp/PowerShell/Install-PowerShell.ps1'
+          type: 'File'
+        }
+        {
+          inline: [ '&\'C:/ByteTerrace/PowerShell/Install-PowerShell.ps1\'' ]
+          name: 'Run Install-PowerShell.ps1'
+          type: 'PowerShell'
+        }
+        {
+          destination: 'C:/ByteTerrace/PowerShell/New-AzureStorageSymbolicLink.ps1'
+          name: 'Download New-AzureStorageSymbolicLink.ps1'
+          sourceUri: 'https://byteterrace.blob.core.windows.net/temp/PowerShell/New-AzureStorageSymbolicLink.ps1'
+          type: 'File'
+        }
+        {
+          inline: [ 'pwsh -NonInteractive -NoProfile -Command { &\'C:/ByteTerrace/PowerShell/New-AzureStorageSymbolicLink.ps1\' -GlobalMapping -LocalPath \'C:/ByteTerrace/NetworkShare\' -Persistent -StorageAccountFileSharePath \'\\\\byteterrace.file.core.windows.net\\temp\' -StorageAccountName \'byteterrace\' -StorageAccountResourceGroupName \'byteterrace\' -StorageAccountSubscriptionId \'fd49ea67-135b-449f-a62c-3e4b8d26d3d6\'; exit $LASTEXITCODE; }' ]
+          name: 'Run New-AzureStorageSymbolicLink.ps1'
+          type: 'PowerShell'
+        }
+        {
+          inline: [ 'pwsh -NonInteractive -NoProfile -Command { &\'C:/ByteTerrace/NetworkShare/Ark Survival Evolved/Install-ArkSurvivalEvolvedServerDependencies.ps1\'; exit $LASTEXITCODE; }']
+          name: 'Run Install-ArkSurvivalEvolvedServerDependencies.ps1'
+          runAsSystem: true
+          runElevated: true
+          type: 'PowerShell'
+        }
+        {
+          inline: [ 'pwsh -NonInteractive -NoProfile -Command { &\'C:/ByteTerrace/NetworkShare/Steam/Install-SteamApp.ps1\' -Arguments \'validate\' -SteamAppId \'376030\' -SteamCmdBasePath \'C:/ByteTerrace/Steam\'; exit $LASTEXITCODE; }' ]
+          name: 'Run Install-SteamApp.ps1'
+          type: 'PowerShell'
+        }
+        {
+          inline: [ 'pwsh -NonInteractive -NoProfile -Command { Remove-SmbMapping -Confirm:$false -GlobalMapping -RemotePath \'\\\\byteterrace.file.core.windows.net\\temp\'; exit 0; }']
+          name: 'Remove Saved Credentials'
+          type: 'PowerShell'
+        }
+      ]
+      name: names.imageTemplates.arkSurvivalEvolvedDedicatedServer
+      identity: { userAssignedIdentities: [ imageBuildVirtualMachinesUserAssignedIdentity.outputs.properties ] }
+      networking: {
+        containerInstanceSubnet: containerInstancesSubnet.outputs.properties
+        subnet: imageBuildVirtualMachinesSubnet.outputs.properties
+      }
+      source: {
+        offer: 'WindowsServer'
+        publisher: 'MicrosoftWindowsServer'
+        sku: '2022-datacenter-azure-edition-smalldisk'
+        type: 'PlatformImage'
+        version: 'latest'
+      }
+      target: {
+        computeGallery: sharedComputeGallery.outputs.properties
+        name: 'WindowsServer2022-ArkSurvivalEvolvedDedicatedServerStable'
+        outputName: 'WindowsServer2022-ArkSurvivalEvolvedDedicatedServerStable'
+      }
+    }
+  }
+}
 module containerInstancesNetworkSecurityGroup '../modules/network/network-security-groups/main.bicep' = {
   name: generateDeploymentName(uniqueString(names.networkSecurityGroups.containerInstances))
   params: {
@@ -293,152 +348,6 @@ module sharedVirtualNetwork '../modules/network/virtual-networks/main.bicep' = {
     }
   }
 }
-
-// host resources
-module arkSurvivalEvolvedDedicatedServerImageTemplate '../modules/virtual-machine-images/image-templates/main.bicep' = {
-  name: generateDeploymentName(uniqueString(names.imageTemplates.arkSurvivalEvolvedDedicatedServer))
-  params: {
-    location: location
-    properties: {
-      customizations: [
-        {
-          inline: [ 'New-Item -ItemType \'Directory\' -Path \'C:/ByteTerrace/PowerShell\' | Out-Null' ]
-          name: 'Create Staging Path'
-          type: 'PowerShell'
-        }
-        {
-          destination: 'C:/ByteTerrace/PowerShell/Install-PowerShell.ps1'
-          name: 'Download Install-PowerShell.ps1'
-          sourceUri: 'https://byteterrace.blob.core.windows.net/temp/PowerShell/Install-PowerShell.ps1'
-          type: 'File'
-        }
-        {
-          inline: [ '&\'C:/ByteTerrace/PowerShell/Install-PowerShell.ps1\'' ]
-          name: 'Run Install-PowerShell.ps1'
-          type: 'PowerShell'
-        }
-        {
-          destination: 'C:/ByteTerrace/PowerShell/New-AzureStorageSymbolicLink.ps1'
-          name: 'Download New-AzureStorageSymbolicLink.ps1'
-          sourceUri: 'https://byteterrace.blob.core.windows.net/temp/PowerShell/New-AzureStorageSymbolicLink.ps1'
-          type: 'File'
-        }
-        {
-          inline: [ 'pwsh -NonInteractive -NoProfile -Command { &\'C:/ByteTerrace/PowerShell/New-AzureStorageSymbolicLink.ps1\' -GlobalMapping -LocalPath \'C:/ByteTerrace/NetworkShare\' -Persistent -StorageAccountFileSharePath \'\\\\byteterrace.file.core.windows.net\\temp\' -StorageAccountName \'byteterrace\' -StorageAccountResourceGroupName \'byteterrace\' -StorageAccountSubscriptionId \'fd49ea67-135b-449f-a62c-3e4b8d26d3d6\'; exit $LASTEXITCODE; }' ]
-          name: 'Run New-AzureStorageSymbolicLink.ps1'
-          type: 'PowerShell'
-        }
-        {
-          inline: [ 'pwsh -NonInteractive -NoProfile -Command { &\'C:/ByteTerrace/NetworkShare/Ark Survival Evolved/Install-ArkSurvivalEvolvedServerDependencies.ps1\'; exit $LASTEXITCODE; }']
-          name: 'Run Install-ArkSurvivalEvolvedServerDependencies.ps1'
-          runAsSystem: true
-          runElevated: true
-          type: 'PowerShell'
-        }
-        {
-          inline: [ 'pwsh -NonInteractive -NoProfile -Command { &\'C:/ByteTerrace/NetworkShare/Steam/Install-SteamApp.ps1\' -Arguments \'validate\' -SteamAppId \'376030\' -SteamCmdBasePath \'C:/ByteTerrace/Steam\'; exit $LASTEXITCODE; }' ]
-          name: 'Run Install-SteamApp.ps1'
-          type: 'PowerShell'
-        }
-        {
-          inline: [ 'pwsh -NonInteractive -NoProfile -Command { Remove-SmbMapping -Confirm:$false -GlobalMapping -RemotePath \'\\\\byteterrace.file.core.windows.net\\temp\'; exit 0; }']
-          name: 'Remove Saved Credentials'
-          type: 'PowerShell'
-        }
-      ]
-      name: names.imageTemplates.arkSurvivalEvolvedDedicatedServer
-      identity: { userAssignedIdentities: [ imageBuildVirtualMachinesUserAssignedIdentity.outputs.properties ] }
-      networking: {
-        containerInstanceSubnet: containerInstancesSubnet.outputs.properties
-        subnet: imageBuildVirtualMachinesSubnet.outputs.properties
-      }
-      source: {
-        offer: 'WindowsServer'
-        publisher: 'MicrosoftWindowsServer'
-        sku: '2022-datacenter-azure-edition-smalldisk'
-        type: 'PlatformImage'
-        version: 'latest'
-      }
-      target: {
-        computeGallery: sharedComputeGallery.outputs.properties
-        name: 'WindowsServer2022-ArkSurvivalEvolvedDedicatedServerStable'
-        outputName: 'WindowsServer2022-ArkSurvivalEvolvedDedicatedServerStable'
-      }
-    }
-  }
-}
-module arkSurvivalEvolvedDedicatedServerPublicIpPrefix '../modules/network/public-ip-prefixes/main.bicep' = {
-  name: generateDeploymentName(uniqueString(names.publicIpPrefixes.arkSurvivalEvolvedDedicatedServer))
-  params: {
-    location: location
-    properties: {
-      length: 31
-      name: names.publicIpPrefixes.arkSurvivalEvolvedDedicatedServer
-      sku: {
-        name: 'Standard'
-        tier: 'Regional'
-      }
-      version: 'IPv4'
-    }
-  }
-}
-module arkSurvivalEvolvedDedicatedServerUserAssignedIdentity '../modules/managed-identity/user-assigned-identities/main.bicep' = {
-  name: generateDeploymentName(uniqueString(names.userAssignedIdentities.arkSurvivalEvolvedDedicatedServer))
-  params: {
-    location: location
-    properties: {
-      name: names.userAssignedIdentities.arkSurvivalEvolvedDedicatedServer
-    }
-  }
-}
-module arkSurvivalEvolvedDedicatedServerVirtualMachineScaleSet '../modules/compute/virtual-machine-scale-sets/main.bicep' = {
-  dependsOn: [ arkSurvivalEvolvedDedicatedServerImageTemplate ]
-  name: generateDeploymentName(uniqueString(names.virtualMachineScaleSets.arkSurvivalEvolvedDedicatedServer))
-  params: {
-    location: location
-    properties: {
-      administrator: administrator
-      name: names.virtualMachineScaleSets.arkSurvivalEvolvedDedicatedServer
-      identity: { userAssignedIdentities: [ arkSurvivalEvolvedDedicatedServerUserAssignedIdentity.outputs.properties ] }
-      networking: {
-        interfaces: [
-          {
-            ipConfigurations: [
-              {
-                isPrimary: true
-                name: 'default'
-                privateIpAddress: {
-                  subnet: hostVirtualMachinesSubnet.outputs.properties
-                  version: 'IPv4'
-                }
-                publicIpPrefix: arkSurvivalEvolvedDedicatedServerPublicIpPrefix.outputs.properties
-              }
-            ]
-            isPrimary: true
-            name: 'TLKRW-NIC'
-          }
-        ]
-      }
-      operatingSystem: {
-        disk: {
-          cacheMode: 'ReadOnly'
-          sizeInGigabytes: 74
-        }
-        image: {
-          gallery: {
-            name: sharedComputeGallery.outputs.properties.name
-          }
-          name: 'WindowsServer2022-ArkSurvivalEvolvedDedicatedServerStable'
-          version: 'latest'
-        }
-        type: 'Windows'
-      }
-      sku: {
-        name: 'Standard_D2ds_v4'
-      }
-    }
-  }
-}
 module _7DaysToDieDedicatedServerImageTemplate '../modules/virtual-machine-images/image-templates/main.bicep' = {
   name: generateDeploymentName(uniqueString(names.imageTemplates['7DaysToDieDedicatedServer']))
   params: {
@@ -517,78 +426,6 @@ module _7DaysToDieDedicatedServerImageTemplate '../modules/virtual-machine-image
         computeGallery: sharedComputeGallery.outputs.properties
         name: 'WindowsServerCore2022-7DaysToDieDedicatedServerStable'
         outputName: 'WindowsServerCore2022-7DaysToDieDedicatedServerStable'
-      }
-    }
-  }
-}
-module _7DaysToDieDedicatedServerPublicIpPrefix '../modules/network/public-ip-prefixes/main.bicep' = {
-  name: generateDeploymentName(uniqueString(names.publicIpPrefixes['7DaysToDieDedicatedServer']))
-  params: {
-    location: location
-    properties: {
-      length: 31
-      name: names.publicIpPrefixes['7DaysToDieDedicatedServer']
-      sku: {
-        name: 'Standard'
-        tier: 'Regional'
-      }
-      version: 'IPv4'
-    }
-  }
-}
-module _7DaysToDieDedicatedServerUserAssignedIdentity '../modules/managed-identity/user-assigned-identities/main.bicep' = {
-  name: generateDeploymentName(uniqueString(names.userAssignedIdentities['7DaysToDieDedicatedServer']))
-  params: {
-    location: location
-    properties: {
-      name: names.userAssignedIdentities['7DaysToDieDedicatedServer']
-    }
-  }
-}
-module _7DaysToDieDedicatedServerVirtualMachineScaleSet '../modules/compute/virtual-machine-scale-sets/main.bicep' = {
-  dependsOn: [ _7DaysToDieDedicatedServerImageTemplate ]
-  name: generateDeploymentName(uniqueString(names.virtualMachineScaleSets['7DaysToDieDedicatedServer']))
-  params: {
-    location: location
-    properties: {
-      administrator: administrator
-      name: names.virtualMachineScaleSets['7DaysToDieDedicatedServer']
-      identity: { userAssignedIdentities: [ _7DaysToDieDedicatedServerUserAssignedIdentity.outputs.properties ] }
-      networking: {
-        interfaces: [
-          {
-            ipConfigurations: [
-              {
-                isPrimary: true
-                name: 'default'
-                privateIpAddress: {
-                  subnet: hostVirtualMachinesSubnet.outputs.properties
-                  version: 'IPv4'
-                }
-                publicIpPrefix: _7DaysToDieDedicatedServerPublicIpPrefix.outputs.properties
-              }
-            ]
-            isPrimary: true
-            name: 'TLKRW-NIC'
-          }
-        ]
-      }
-      operatingSystem: {
-        disk: {
-          cacheMode: 'ReadOnly'
-          sizeInGigabytes: 74
-        }
-        image: {
-          gallery: {
-            name: sharedComputeGallery.outputs.properties.name
-          }
-          name: 'WindowsServerCore2022-7DaysToDieDedicatedServerStable'
-          version: 'latest'
-        }
-        type: 'Windows'
-      }
-      sku: {
-        name: 'Standard_D2ds_v4'
       }
     }
   }
